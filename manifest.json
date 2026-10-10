@@ -1,0 +1,47 @@
+{
+    "name": "X utility",
+    "version": "2.0.4",
+    "description": "웹 세션 기반의 X 사용 도우미",
+    "manifest_version": 3,
+    "icons": {
+        "16": "icon.png",
+        "32": "icon.png",
+        "48": "icon.png"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://*.twitter.com/*",
+                "https://*.x.com/*"
+            ],
+            "js": [
+                "x_api.js",
+                "follower_tracker.js",
+                "likes_cleaner.js",
+                "delete_tweet.js",
+                "contentScript.js"
+            ]
+        }
+    ],
+    "action": {
+        "default_icon": {
+            "16": "icon.png",
+            "32": "icon.png",
+            "48": "icon.png"
+        },
+        "default_title": "X utility",
+        "default_popup": "popup.html"
+    },
+    "permissions": [
+        "tabs",
+        "webRequest"
+    ],
+    "host_permissions": [
+        "*://*.twitter.com/*",
+        "*://*.x.com/*",
+        "https://abs.twimg.com/*"
+    ]
+}
