@@ -82,28 +82,22 @@
         }
 
         .section {
+            --section-accent: var(--primary);
             position: relative;
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            margin: 0 0 10px;
+            gap: 12px;
+            margin: 0 0 12px;
             padding: 15px 14px 14px;
             border: 1px solid var(--outline);
+            border-top: 4px solid var(--section-accent);
             border-radius: 15px;
             background: var(--surface);
             overflow: hidden;
         }
 
-        .section::before {
-            position: absolute;
-            inset: 0 0 auto;
-            height: 2px;
-            background: var(--primary);
-            content: "";
-        }
-
-        .section:nth-of-type(2)::before { background: var(--like-accent); }
-        .section:nth-of-type(3)::before { background: var(--follower-accent); }
+        .section:nth-of-type(2) { --section-accent: var(--like-accent); }
+        .section:nth-of-type(3) { --section-accent: var(--follower-accent); }
 
         .section:nth-of-type(2) .section-title { color: var(--like-accent); }
         .section:nth-of-type(3) .section-title { color: var(--follower-accent); }
