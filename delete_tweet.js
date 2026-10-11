@@ -210,6 +210,9 @@ async function fetchTweets(options, operation, cursor) {
                 variables,
                 session: options.session,
                 signal: options.signal,
+                rateLimitRetry: true,
+                minIntervalMs: 2500,
+                onRateLimit: options.onRateLimit,
                 cleanupDebug: {
                     operation: operation.operation,
                     phase: options.currentPhase || "initial-scan",
@@ -283,6 +286,9 @@ async function deleteTweet(tweetId, options, deleteOperation) {
                 variables: { tweet_id: tweetId, dark_request: false },
                 session: options.session,
                 signal: options.signal,
+                rateLimitRetry: true,
+                minIntervalMs: Math.max(2000, Number(options.delay) || 2000),
+                onRateLimit: options.onRateLimit,
                 cleanupDebug: {
                     operation: "DeleteTweet",
                     phase: "delete",
@@ -776,7 +782,9 @@ async function OnTweetClean(message) {
         controller.abort();
     };
     count.textContent = "삭제된 게시글: 0개";
-    content.append(title, count, cancel);
+    const waitStatus = document.createElement("div");
+    waitStatus.style.cssText = "display:none;max-width:420px;line-height:1.5";
+    content.append(title, count, waitStatus, cancel);
     overlay.appendChild(content);
     document.body.appendChild(overlay);
 
@@ -784,6 +792,14 @@ async function OnTweetClean(message) {
         const response = await new Promise(resolve =>
             chrome.runtime.sendMessage({ type: "getHeaders" }, resolve));
         await runCleanup({ ...message, signal: controller.signal, isCancelled: () => cancelled,
+            onRateLimit: status => {
+                waitStatus.style.display = status ? "block" : "none";
+                title.textContent = status ? "X 요청 대기 중" : "게시글 정리 중...";
+                if (status) {
+                    const action = status.operation === "DeleteTweet" ? "삭제" : "게시글 목록 조회";
+                    waitStatus.textContent = `X의 ${action} 요청 제한으로 대기 중입니다. ${status.seconds}초 후 자동으로 이어서 진행합니다.`;
+                }
+            },
             countCallback: value => { count.textContent = `삭제된 게시글: ${value}개`; } }, response || {});
         title.textContent = "게시글 정리 완료";
         cancel.textContent = "확인";
@@ -793,8 +809,15 @@ async function OnTweetClean(message) {
         title.textContent = errorType === "CANCELLED"
             ? "게시글 정리 취소됨"
             : errorType === "RATE_LIMIT"
-                ? "잠시 이용이 제한되었습니다"
+                ? "X 요청 제한으로 작업을 멈췄습니다"
                 : "게시글 정리 실패";
+        if (errorType === "RATE_LIMIT") {
+            waitStatus.style.display = "block";
+            const retryAt = Number(error.details?.retryAt);
+            waitStatus.textContent = retryAt > Date.now()
+                ? `X가 요청을 제한했습니다. ${new Date(retryAt).toLocaleTimeString()} 이후 다시 시도해 주세요. 이미 삭제한 게시글 수는 위에 표시됩니다.`
+                : "X가 계속 요청을 제한하고 있습니다. 잠시 후 다시 시도해 주세요. 이미 삭제한 게시글 수는 위에 표시됩니다.";
+        }
         if (error.message.includes("세션 정보")) {
             cancel.textContent = "새로고침";
             cancel.onclick = () => window.location.reload();

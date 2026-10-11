@@ -51,7 +51,10 @@
                 operation,
                 variables,
                 session,
-                signal
+                signal,
+                rateLimitRetry: true,
+                minIntervalMs: 2500,
+                onRateLimit: context.onRateLimit
             });
             const instructions = api.timelineInstructions(data);
             if (!Array.isArray(instructions) || instructions.length === 0) {
@@ -170,6 +173,7 @@
                 api,
                 session,
                 signal: options.signal,
+                onRateLimit: options.onRateLimit,
                 onProgress: value => {
                     stats.checked = value.checked;
                     options.onProgress?.({ ...stats, phase: "collect" });
@@ -188,7 +192,10 @@
                         operation,
                         variables: { tweet_id: tweetId, dark_request: false },
                         session,
-                        signal: options.signal
+                        signal: options.signal,
+                        rateLimitRetry: true,
+                        minIntervalMs: Math.max(2000, Number(options.delay) || 2000),
+                        onRateLimit: options.onRateLimit
                     });
                     try {
                         await request();
@@ -305,6 +312,14 @@
             const result = await runLikesCleanup({
                 delay,
                 signal: controller.signal,
+                onRateLimit: status => {
+                    ui.title.textContent = status ? "X 요청 대기 중" : "마음에 들어요 청소 중";
+                    if (status) {
+                        ui.phase.textContent = `X 요청 제한으로 대기 중입니다. ${status.seconds}초 후 자동으로 이어서 진행합니다.`;
+                    } else {
+                        renderStats(ui, lastStats);
+                    }
+                },
                 onProgress: stats => {
                     lastStats = stats;
                     renderStats(ui, stats);
@@ -321,7 +336,7 @@
             const stats = error?.stats || lastStats;
             renderStats(ui, stats);
             if (error?.type === root.XApi?.ErrorTypes?.RATE_LIMIT) {
-                ui.title.textContent = "잠시 이용이 제한되었습니다";
+                ui.title.textContent = "X 요청 제한으로 작업을 멈췄습니다";
                 ui.phase.textContent =
                     `X에서 요청이 많아 잠시 제한했습니다. 현재까지 ${stats.completed.toLocaleString()}개의 좋아요를 취소했습니다. 잠시 후 다시 시도해 주세요.`;
             } else if (error?.type === root.XApi?.ErrorTypes?.CANCELLED) {

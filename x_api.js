@@ -15,6 +15,8 @@
     });
     const taskLocks = new Map();
     const operationCache = new Map();
+    const requestBudgets = new Map();
+    let lastCleanupRequestAt = 0;
     let transactionContextPromise = null;
     let bundleSourcesPromise = null;
 
@@ -475,9 +477,23 @@
         return headers;
     }
 
+    function rateLimitDetails(response) {
+        const retryAfter = response.headers?.get("retry-after");
+        const reset = Number(response.headers?.get("x-rate-limit-reset")) * 1000;
+        const retryAt = retryAfter
+            ? (/^\d+(\.\d+)?$/.test(retryAfter)
+                ? Date.now() + Number(retryAfter) * 1000 : Date.parse(retryAfter))
+            : 0;
+        return {
+            status: response.status,
+            retryAt: Math.max(Number.isFinite(reset) ? reset : 0,
+                Number.isFinite(retryAt) ? retryAt : 0)
+        };
+    }
+
     function classifyResponse(response, data) {
         if (response.status === 429) {
-            throw apiError(ERROR_TYPES.RATE_LIMIT, "X 요청 제한에 도달했습니다.", { status: 429 });
+            throw apiError(ERROR_TYPES.RATE_LIMIT, "X 요청 제한에 도달했습니다.", rateLimitDetails(response));
         }
         if (response.status === 401 || response.status === 403) {
             throw apiError(ERROR_TYPES.LOGIN_REQUIRED, "X 로그인이 만료되었거나 필요합니다.", { status: response.status });
@@ -490,7 +506,7 @@
             throw apiError(
                 ERROR_TYPES.RATE_LIMIT,
                 "X 요청 제한에 도달했습니다.",
-                { status: response.status, errors }
+                { ...rateLimitDetails(response), errors }
             );
         }
         if (errors.some(error => [32, 89, 215, 220, 326].includes(Number(error?.code)))) {
@@ -509,7 +525,53 @@
         }
     }
 
+    async function waitForBudget(until, options, operation) {
+        if (until - Date.now() > 16 * 60 * 1000) {
+            throw apiError(ERROR_TYPES.RATE_LIMIT, "X가 긴 대기 시간을 요청했습니다. 나중에 다시 시도해 주세요.", { retryAt: until });
+        }
+        try {
+            while (until > Date.now()) {
+                throwIfCancelled(options.signal);
+                options.onRateLimit?.({ operation, seconds: Math.ceil((until - Date.now()) / 1000) });
+                await sleep(Math.min(1000, until - Date.now()), options.signal);
+            }
+        } finally {
+            options.onRateLimit?.(null);
+        }
+    }
+
+    // Retry only explicit rate-limit rejections, never ambiguous network errors.
+    // Budgets are per operation: a timeline read is separate from a deletion.
     async function graphQL(options) {
+        if (!options.rateLimitRetry) return graphQLOnce(options);
+        throwIfCancelled(options.signal);
+        const session = options.session || await getHeaders();
+        const operation = options.operation?.queryId
+            ? normaliseOperation(options.operation, options.operation.operation || options.operationName)
+            : await resolveOperation(options.operationNames || options.operationName, session);
+        if (!operation) throw apiError(ERROR_TYPES.API_CHANGED, "GraphQL 작업 정보가 올바르지 않습니다.");
+        const key = `${getOwnUserId()}:${operation.operation}`;
+        const requestOptions = { ...options, session, operation };
+        for (let attempt = 0; ; attempt++) {
+            await waitForBudget(requestBudgets.get(key) || 0, options, operation.operation);
+            const interval = Math.max(1500, Number(options.minIntervalMs) || 2000);
+            await sleep(Math.max(0, lastCleanupRequestAt + interval - Date.now()), options.signal);
+            throwIfCancelled(options.signal);
+            lastCleanupRequestAt = Date.now();
+            try {
+                return await graphQLOnce(requestOptions);
+            } catch (error) {
+                if (error.type !== ERROR_TYPES.RATE_LIMIT) throw error;
+                const serverRetryAt = Number(error.details?.retryAt);
+                const until = (serverRetryAt > Date.now()
+                    ? serverRetryAt : Date.now() + 60000 * (2 ** attempt)) + 1000;
+                requestBudgets.set(key, until);
+                if (attempt >= 2) throw error;
+            }
+        }
+    }
+
+    async function graphQLOnce(options) {
         const method = String(options?.method || "GET").toUpperCase();
         if (method !== "GET" && method !== "POST") {
             throw apiError(ERROR_TYPES.API_CHANGED, `지원하지 않는 GraphQL 방식입니다: ${method}`);
@@ -603,6 +665,12 @@
             throw apiError(ERROR_TYPES.NETWORK, "X와 통신하지 못했습니다.", error);
         }
         let data = null;
+        if (options.rateLimitRetry && response.headers?.get("x-rate-limit-remaining") === "0") {
+            const until = rateLimitDetails(response).retryAt;
+            if (until > Date.now()) {
+                requestBudgets.set(`${getOwnUserId()}:${operation.operation}`, until + 1000);
+            }
+        }
         try {
             data = await response.json();
         } catch {
