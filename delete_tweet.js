@@ -43,7 +43,7 @@ function getTweetText(tweet) {
     return legacy.full_text || tweet?.note_tweet?.note_tweet_results?.result?.text || tweet?.text || "";
 }
 
-function isOwnedTweet(tweet, userId) {
+function getTweetOwnerId(tweet) {
     const ownerId = tweet?.core?.user_results?.result?.rest_id ||
         tweet?.core?.user_results?.result?.id_str ||
         tweet?.user_results?.result?.rest_id ||
@@ -52,7 +52,11 @@ function isOwnedTweet(tweet, userId) {
         getLegacy(tweet).user_id_str ||
         getLegacy(tweet).user_id ||
         "";
-    return String(ownerId) === String(userId);
+    return String(ownerId);
+}
+
+function isOwnedTweet(tweet, userId) {
+    return getTweetOwnerId(tweet) === String(userId);
 }
 
 function getOperation(headers, names) {
@@ -154,7 +158,8 @@ function findTimelineTweets(entries, result = [], seen = new Set()) {
             value.tweet_results?.result,
             value.tweetResult?.result
         ].filter(Boolean);
-        if (value.__typename === "Tweet" || value.rest_id || value.legacy?.id_str) {
+        if (value.__typename === "Tweet" ||
+            (value.legacy?.id_str && (value.legacy?.user_id_str || value.legacy?.user_id))) {
             candidates.push(value);
         }
         for (const candidate of candidates) {
@@ -211,8 +216,9 @@ async function fetchTweets(options, operation, cursor) {
                 session: options.session,
                 signal: options.signal,
                 rateLimitRetry: true,
-                minIntervalMs: 2500,
+                minIntervalMs: 300,
                 onRateLimit: options.onRateLimit,
+                onDiagnostic: options.onDiagnostic,
                 cleanupDebug: {
                     operation: operation.operation,
                     phase: options.currentPhase || "initial-scan",
@@ -287,8 +293,9 @@ async function deleteTweet(tweetId, options, deleteOperation) {
                 session: options.session,
                 signal: options.signal,
                 rateLimitRetry: true,
-                minIntervalMs: Math.max(2000, Number(options.delay) || 2000),
+                minIntervalMs: Math.max(300, Number(options.delay) || 500),
                 onRateLimit: options.onRateLimit,
+                onDiagnostic: options.onDiagnostic,
                 cleanupDebug: {
                     operation: "DeleteTweet",
                     phase: "delete",
@@ -448,6 +455,7 @@ async function scanTimeline(operation, options, protectedTweetIds) {
     let cursor = null;
     let pages = 0;
     let complete = true;
+    let unchangedPages = 0;
 
     while (true) {
         throwIfCleanupCancelled(options);
@@ -502,7 +510,15 @@ async function scanTimeline(operation, options, protectedTweetIds) {
             if (!tweets.has(tweetId)) tweets.set(tweetId, tweet);
         }
         const newTweetCount = tweets.size - previousTweetCount;
+        unchangedPages = newTweetCount === 0 ? unchangedPages + 1 : 0;
         const nextCursor = getNextCursor(entries);
+        options.onDiagnostic?.({ kind: "page", operation: operation.operation,
+            phase: options.currentPhase, page: pages, fetched: pageTweets.length,
+            newTweets: newTweetCount,
+            owned: pageTweets.filter(tweet => isOwnedTweet(tweet, options.userId)).length,
+            unknownOwner: pageTweets.filter(tweet => !getTweetOwnerId(tweet)).length,
+            pinned: pageTweets.filter(tweet => tweet.__cleanerPinned).length,
+            hasNextCursor: Boolean(nextCursor), unchangedPages });
         if (options.pageCallback) {
             await options.pageCallback({
                 tweets: pageTweets,
@@ -518,6 +534,21 @@ async function scanTimeline(operation, options, protectedTweetIds) {
             entry?.entryId?.startsWith("cursor-") || entry?.content?.cursorType
         );
         if (terminated || (pageTweets.length === 0 && cursorOnly) || !nextCursor) break;
+        // Only excluded, owned pins may end a repeated timeline early.
+        // With pin exclusion disabled, pins remain deletion targets and the
+        // normal pagination and stalled-timeline checks must still run.
+        if (options.keepPinned === true && pages > 1 && newTweetCount === 0 &&
+            pageTweets.length > 0 && pageTweets.every(tweet =>
+                tweet.__cleanerPinned && isOwnedTweet(tweet, options.userId))) {
+            options.onDiagnostic?.({ kind: "scan-end", operation: operation.operation,
+                phase: options.currentPhase, page: pages, reason: "repeated-excluded-pinned-only" });
+            break;
+        }
+        if (unchangedPages >= 3) {
+            const error = new Error("게시글 목록이 같은 내용을 반복하여 조회를 멈췄습니다. 잠시 후 다시 시도해 주세요.");
+            error.type = "TIMELINE_STALLED";
+            throw error;
+        }
         if (visitedCursors.has(nextCursor)) {
             console.warn("[X-Utility][PostCleanup] pagination stopped: next cursor already visited", {
                 phase: options.currentPhase,
@@ -634,6 +665,7 @@ async function runCleanup(message, response) {
     const deletedTweetIds = new Set();
     const failedTweetIds = new Set();
     try {
+        if (taskToken) globalThis.XApi.beginCleanup(taskToken, options.onDiagnostic);
         for (let pass = 0; pass < MAX_CLEANUP_PASSES; pass++) {
             throwIfCleanupCancelled(options);
             options.currentPhase = pass === 0 ? "initial-scan" : "verify";
@@ -644,8 +676,10 @@ async function runCleanup(message, response) {
             }
             let passHadTargets = false;
             let passSuccessfulDeletes = 0;
+            let unknownOwnerCount = 0;
             const scheduledTweetIds = new Set();
             options.pageCallback = async ({ tweets: pageTweets }) => {
+                unknownOwnerCount += pageTweets.filter(tweet => !getTweetOwnerId(tweet)).length;
                 const targets = pageTweets.filter(tweet => {
                     const tweetId = getTweetId(tweet);
                     return matchesFilter(tweet, options, userId) &&
@@ -707,6 +741,11 @@ async function runCleanup(message, response) {
             else timing.verifyDone = now();
 
             if (!passHadTargets) {
+                if (unknownOwnerCount > 0) {
+                    const error = new Error("조회된 게시글의 작성자를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+                    error.type = "OWNER_UNAVAILABLE";
+                    throw error;
+                }
                 requestStats.result = "SUCCEEDED";
                 return total;
             }
@@ -725,69 +764,20 @@ async function runCleanup(message, response) {
 }
 
 async function OnTweetClean(message) {
-    document.getElementById("tweet-clean-overlay")?.remove();
-    const overlay = document.createElement("div");
-    overlay.id = "tweet-clean-overlay";
-    overlay.style.cssText = "box-sizing:border-box;position:fixed;inset:0;background:#000e;color:white;display:flex;justify-content:center;align-items:center;z-index:9999;font:16px sans-serif";
-    const content = document.createElement("div");
-    content.style.cssText = [
-        "box-sizing:border-box",
-        "display:flex",
-        "flex-direction:column",
-        "align-items:center",
-        "justify-content:center",
-        "text-align:center",
-        "width:max-content",
-        "min-width:220px",
-        "padding:28px 24px",
-        "gap:18px",
-        "margin:0"
-    ].join(";");
-    const title = document.createElement("strong");
-    title.textContent = "게시글 정리 중...";
-    title.style.cssText = [
-        "display:block",
-        "margin:0",
-        "font:750 20px Pretendard,'Noto Sans KR','맑은 고딕',Arial,sans-serif",
-        "line-height:1.2"
-    ].join(";");
+    const ui = globalThis.createCleanupOverlay("tweet-clean-overlay", "게시글 정리 중...");
+    const { overlay, title, phase: waitStatus, button: cancel } = ui;
     const count = document.createElement("div");
-    count.style.cssText = "display:block;margin:0;line-height:1.4";
-    const cancel = document.createElement("button");
-    cancel.textContent = "취소";
-    cancel.style.cssText = [
-        "box-sizing:border-box",
-        "display:inline-flex",
-        "align-items:center",
-        "justify-content:center",
-        "align-self:center",
-        "margin:0",
-        "width:auto",
-        "min-width:88px",
-        "height:44px",
-        "padding:0 18px",
-        "border:0",
-        "border-radius:10px",
-        "background:#364F6B",
-        "color:#fff",
-        "cursor:pointer",
-        "font:650 13px Pretendard,'Noto Sans KR','맑은 고딕',Arial,sans-serif",
-        "line-height:1",
-        "text-align:center"
-    ].join(";");
+    count.textContent = "삭제된 게시글: 0개";
+    ui.stats.appendChild(count);
     let cancelled = false;
     const controller = new AbortController();
     cancel.onclick = () => {
         cancelled = true;
         controller.abort();
+        cancel.disabled = true;
+        waitStatus.style.display = "block";
+        waitStatus.textContent = "취소하는 중...";
     };
-    count.textContent = "삭제된 게시글: 0개";
-    const waitStatus = document.createElement("div");
-    waitStatus.style.cssText = "display:none;max-width:420px;line-height:1.5";
-    content.append(title, count, waitStatus, cancel);
-    overlay.appendChild(content);
-    document.body.appendChild(overlay);
-
     try {
         const response = await new Promise(resolve =>
             chrome.runtime.sendMessage({ type: "getHeaders" }, resolve));
@@ -800,12 +790,21 @@ async function OnTweetClean(message) {
                     waitStatus.textContent = `X의 ${action} 요청 제한으로 대기 중입니다. ${status.seconds}초 후 자동으로 이어서 진행합니다.`;
                 }
             },
-            countCallback: value => { count.textContent = `삭제된 게시글: ${value}개`; } }, response || {});
+            countCallback: value => {
+                count.textContent = `삭제된 게시글: ${value}개`;
+            } }, response || {});
         title.textContent = "게시글 정리 완료";
+        waitStatus.style.display = "block";
+        waitStatus.textContent = "게시글 정리가 끝났습니다.";
         cancel.textContent = "확인";
         cancel.onclick = () => overlay.remove();
     } catch (error) {
         const errorType = error.type || error.message;
+        cancel.disabled = false;
+        waitStatus.style.display = "block";
+        waitStatus.textContent = errorType === "CANCELLED"
+            ? "사용자가 작업을 취소했습니다."
+            : "게시글을 정리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
         title.textContent = errorType === "CANCELLED"
             ? "게시글 정리 취소됨"
             : errorType === "RATE_LIMIT"
@@ -813,10 +812,11 @@ async function OnTweetClean(message) {
                 : "게시글 정리 실패";
         if (errorType === "RATE_LIMIT") {
             waitStatus.style.display = "block";
-            const retryAt = Number(error.details?.retryAt);
-            waitStatus.textContent = retryAt > Date.now()
-                ? `X가 요청을 제한했습니다. ${new Date(retryAt).toLocaleTimeString()} 이후 다시 시도해 주세요. 이미 삭제한 게시글 수는 위에 표시됩니다.`
-                : "X가 계속 요청을 제한하고 있습니다. 잠시 후 다시 시도해 주세요. 이미 삭제한 게시글 수는 위에 표시됩니다.";
+            waitStatus.textContent = "X가 요청을 제한하고 있어 작업을 멈췄습니다. 잠시 후 다시 시도해 주세요. 이미 삭제한 게시글 수는 위에 표시됩니다.";
+        }
+        if (["TIMELINE_STALLED", "OWNER_UNAVAILABLE"].includes(errorType)) {
+            waitStatus.style.display = "block";
+            waitStatus.textContent = error.message;
         }
         if (error.message.includes("세션 정보")) {
             cancel.textContent = "새로고침";

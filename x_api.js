@@ -478,16 +478,37 @@
     }
 
     function rateLimitDetails(response) {
-        const retryAfter = response.headers?.get("retry-after");
-        const reset = Number(response.headers?.get("x-rate-limit-reset")) * 1000;
-        const retryAt = retryAfter
-            ? (/^\d+(\.\d+)?$/.test(retryAfter)
-                ? Date.now() + Number(retryAfter) * 1000 : Date.parse(retryAfter))
-            : 0;
+        const localNow = Date.now();
+        const read = name => response.headers?.get(name) ?? null;
+        const rateHeaders = {
+            retryAfter: read("retry-after"),
+            limit: read("x-rate-limit-limit"),
+            remaining: read("x-rate-limit-remaining"),
+            reset: read("x-rate-limit-reset"),
+            date: read("date")
+        };
+        const serverNow = Date.parse(rateHeaders.date);
+        const referenceNow = Number.isFinite(serverNow) ? serverNow : localNow;
+        const reset = Number(rateHeaders.reset) * 1000;
+        let retryAt = 0;
+        let waitSource = "default-60-seconds";
+        if (rateHeaders.retryAfter && /^\d+$/.test(rateHeaders.retryAfter.trim())) {
+            retryAt = localNow + Number(rateHeaders.retryAfter) * 1000;
+            waitSource = "retry-after-seconds";
+        } else if (rateHeaders.retryAfter && Number.isFinite(Date.parse(rateHeaders.retryAfter))) {
+            retryAt = localNow + Math.max(0, Date.parse(rateHeaders.retryAfter) - referenceNow);
+            waitSource = "retry-after-date";
+        } else if (rateHeaders.reset && Number.isFinite(reset) && reset > 0) {
+            retryAt = localNow + Math.max(0, reset - referenceNow);
+            waitSource = Number.isFinite(serverNow) ? "rate-limit-reset-server-clock" : "rate-limit-reset-local-clock";
+        }
         return {
             status: response.status,
-            retryAt: Math.max(Number.isFinite(reset) ? reset : 0,
-                Number.isFinite(retryAt) ? retryAt : 0)
+            retryAt,
+            waitSource,
+            waitSeconds: retryAt ? Math.max(0, Math.ceil((retryAt - localNow) / 1000)) : 60,
+            rateHeaders,
+            clockSkewSeconds: Number.isFinite(serverNow) ? Math.round((localNow - serverNow) / 1000) : null
         };
     }
 
@@ -526,8 +547,10 @@
     }
 
     async function waitForBudget(until, options, operation) {
-        if (until - Date.now() > 16 * 60 * 1000) {
-            throw apiError(ERROR_TYPES.RATE_LIMIT, "X가 긴 대기 시간을 요청했습니다. 나중에 다시 시도해 주세요.", { retryAt: until });
+        if (until > Date.now()) options.onDiagnostic?.({ kind: "wait-plan", operation,
+            seconds: Math.ceil((until - Date.now()) / 1000), maxAutomaticSeconds: 60 });
+        if (until - Date.now() > 60000) {
+            throw apiError(ERROR_TYPES.RATE_LIMIT, "X가 요청을 제한하고 있습니다. 자동 대기 범위를 넘어 작업을 멈췄습니다.", { retryAt: until });
         }
         try {
             while (until > Date.now()) {
@@ -537,6 +560,25 @@
             }
         } finally {
             options.onRateLimit?.(null);
+        }
+    }
+
+    // An explicit new task checks the current server response once. Cached
+    // limits from a previous task must not be reported as a fresh rejection.
+    // Within the task, server cooldowns and the one-retry cap remain in force.
+    function beginCleanup(token, onDiagnostic) {
+        if (!token || taskLocks.get("x-cleaner") !== token) {
+            throw apiError(ERROR_TYPES.CANCELLED, "정리 작업 잠금을 확인할 수 없습니다.");
+        }
+        const prefix = `${getOwnUserId()}:`;
+        for (const [key, until] of requestBudgets) {
+            if (!key.startsWith(prefix)) continue;
+            if (until > Date.now()) onDiagnostic?.({
+                kind: "previous-limit", operation: key.slice(prefix.length),
+                secondsRemaining: Math.ceil((until - Date.now()) / 1000),
+                freshCheck: true
+            });
+            requestBudgets.delete(key);
         }
     }
 
@@ -554,19 +596,20 @@
         const requestOptions = { ...options, session, operation };
         for (let attempt = 0; ; attempt++) {
             await waitForBudget(requestBudgets.get(key) || 0, options, operation.operation);
-            const interval = Math.max(1500, Number(options.minIntervalMs) || 2000);
+            const interval = Math.max(0, Number(options.minIntervalMs) ||
+                (String(options.method || "GET").toUpperCase() === "POST" ? 500 : 300));
             await sleep(Math.max(0, lastCleanupRequestAt + interval - Date.now()), options.signal);
             throwIfCancelled(options.signal);
             lastCleanupRequestAt = Date.now();
             try {
-                return await graphQLOnce(requestOptions);
+                return await graphQLOnce({ ...requestOptions, diagnosticAttempt: attempt + 1 });
             } catch (error) {
                 if (error.type !== ERROR_TYPES.RATE_LIMIT) throw error;
                 const serverRetryAt = Number(error.details?.retryAt);
                 const until = (serverRetryAt > Date.now()
-                    ? serverRetryAt : Date.now() + 60000 * (2 ** attempt)) + 1000;
+                    ? serverRetryAt : Date.now() + 60000);
                 requestBudgets.set(key, until);
-                if (attempt >= 2) throw error;
+                if (attempt >= 1) throw error;
             }
         }
     }
@@ -665,15 +708,27 @@
             throw apiError(ERROR_TYPES.NETWORK, "X와 통신하지 못했습니다.", error);
         }
         let data = null;
+        const diagnostic = {
+            kind: "response",
+            operation: operation.operation,
+            method,
+            phase: options.cleanupDebug?.phase || null,
+            page: options.cleanupDebug?.page || null,
+            hasCursor: Boolean(variables.cursor),
+            attempt: options.diagnosticAttempt || 1,
+            durationMs: Math.round(performance.now() - requestStartedAt),
+            ...rateLimitDetails(response)
+        };
         if (options.rateLimitRetry && response.headers?.get("x-rate-limit-remaining") === "0") {
             const until = rateLimitDetails(response).retryAt;
             if (until > Date.now()) {
-                requestBudgets.set(`${getOwnUserId()}:${operation.operation}`, until + 1000);
+                requestBudgets.set(`${getOwnUserId()}:${operation.operation}`, until);
             }
         }
         try {
             data = await response.json();
         } catch {
+            options.onDiagnostic?.({ ...diagnostic, json: false, errorCodes: [] });
             if (options.cleanupDebug) {
                 console.warn("[X-Utility][PostCleanup] request failed", {
                     phase: options.cleanupDebug.phase || "request",
@@ -692,6 +747,9 @@
             }
             throw apiError(ERROR_TYPES.API_CHANGED, "X GraphQL 응답 형식이 JSON이 아닙니다.", { status: response.status });
         }
+        options.onDiagnostic?.({ ...diagnostic, json: true,
+            errorCodes: (Array.isArray(data?.errors) ? data.errors : [])
+                .map(error => Number(error?.code)).filter(Number.isFinite) });
         try {
             classifyResponse(response, data);
         } catch (error) {
@@ -802,6 +860,7 @@
         resolveOperation,
         createTransactionId,
         graphQL,
+        beginCleanup,
         timelineInstructions,
         timelineEntries,
         timelineCursor,

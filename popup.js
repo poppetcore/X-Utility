@@ -235,7 +235,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             const response = await sendToTab({
                 deleteMytweet: true,
                 keepPinned: pinnedInput.checked,
-                delay: 2000
+                delay: 500
             });
             if (!response?.started) throw new Error("content script가 시작 요청을 확인하지 못했습니다.");
             window.close();
@@ -267,7 +267,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (!confirmed) return;
         likesButton.disabled = true;
         try {
-            const response = await sendToTab({ type: "startLikesCleanup", delay: 2000 });
+            const response = await sendToTab({ type: "startLikesCleanup", delay: 700 });
             if (!response?.started) throw new Error("content script가 시작 요청을 확인하지 못했습니다.");
             window.close();
         } catch (error) {

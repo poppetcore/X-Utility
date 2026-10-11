@@ -1,6 +1,6 @@
 {
     "name": "X Utility",
-    "version": "2.0.6",
+    "version": "2.0.14",
     "description": "웹 세션 기반의 X 사용 도우미",
     "manifest_version": 3,
     "icons": {
@@ -20,6 +20,7 @@
             "js": [
                 "x_api.js",
                 "follower_tracker.js",
+                "cleanup_ui.js",
                 "likes_cleaner.js",
                 "delete_tweet.js",
                 "contentScript.js"

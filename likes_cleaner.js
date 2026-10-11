@@ -53,7 +53,7 @@
                 session,
                 signal,
                 rateLimitRetry: true,
-                minIntervalMs: 2500,
+                minIntervalMs: 650,
                 onRateLimit: context.onRateLimit
             });
             const instructions = api.timelineInstructions(data);
@@ -156,7 +156,7 @@
     async function runLikesCleanup(options = {}) {
         const api = root.XApi;
         if (!api) throw new Error("공통 X API 모듈을 불러오지 못했습니다.");
-        if (likesRunning) throw new Error("마음에 들어요 청소가 이미 실행 중입니다.");
+        if (likesRunning) throw new Error("마음에 들어요 정리가 이미 실행 중입니다.");
         likesRunning = true;
         const token = api.acquireTaskLock("x-cleaner");
         if (!token) {
@@ -165,6 +165,7 @@
         }
         const stats = { checked: 0, completed: 0, failed: 0, lastError: "" };
         try {
+            api.beginCleanup(token);
             if (!api.getOwnUserId()) {
                 throw new api.Error(api.ErrorTypes.LOGIN_REQUIRED, "X에 로그인한 후 다시 시도해주세요.");
             }
@@ -194,7 +195,7 @@
                         session,
                         signal: options.signal,
                         rateLimitRetry: true,
-                        minIntervalMs: Math.max(2000, Number(options.delay) || 2000),
+                        minIntervalMs: Math.max(500, Number(options.delay) || 700),
                         onRateLimit: options.onRateLimit
                     });
                     try {
@@ -238,23 +239,13 @@
     }
 
     function createOverlay() {
-        document.getElementById("likes-cleaner-overlay")?.remove();
-        const overlay = document.createElement("div");
-        overlay.id = "likes-cleaner-overlay";
-        overlay.style.cssText = "position:fixed;inset:0;background:#000e;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:2147483647;font:16px sans-serif;gap:12px";
-        const title = document.createElement("strong");
-        title.textContent = "마음에 들어요 청소 중";
-        const phase = document.createElement("div");
-        phase.textContent = "마음에 들어요 내역을 확인하는 중...";
+        const ui = root.createCleanupOverlay("likes-cleaner-overlay", "마음에 들어요 정리 중...", "#e64b7a", "#ca3d68");
+        ui.phase.style.display = "block";
         const checked = document.createElement("div");
         const completed = document.createElement("div");
         const failed = document.createElement("div");
-        const button = document.createElement("button");
-        button.textContent = "취소";
-        button.style.cssText = "padding:10px 24px;cursor:pointer";
-        overlay.append(title, phase, checked, completed, failed, button);
-        document.body.appendChild(overlay);
-        return { overlay, title, phase, checked, completed, failed, button };
+        ui.stats.append(checked, completed, failed);
+        return { ...ui, checked, completed, failed };
     }
 
     function renderStats(ui, stats) {
@@ -272,36 +263,6 @@
         const controller = new AbortController();
         let completedSuccessfully = false;
         let lastStats = { checked: 0, completed: 0, failed: 0, phase: "collect" };
-        ui.overlay.style.fontFamily = '"Pretendard", "Noto Sans KR", "맑은 고딕", Arial, sans-serif';
-        ui.title.style.fontSize = "20px";
-        ui.title.style.fontWeight = "750";
-        ui.phase.style.color = "#e5e7eb";
-        ui.phase.style.textAlign = "center";
-        ui.phase.style.maxWidth = "90%";
-        ui.button.style.display = "inline-flex";
-        ui.button.style.alignItems = "center";
-        ui.button.style.justifyContent = "center";
-        ui.button.style.alignSelf = "center";
-        ui.button.style.minWidth = "88px";
-        ui.button.style.width = "auto";
-        ui.button.style.height = "36px";
-        ui.button.style.minHeight = "36px";
-        ui.button.style.padding = "0 18px";
-        ui.button.style.border = "0";
-        ui.button.style.borderRadius = "10px";
-        ui.button.style.background = "#FC5185";
-        ui.button.style.color = "#fff";
-        ui.button.style.font = '650 13px "Pretendard", "Noto Sans KR", "맑은 고딕", Arial, sans-serif';
-        ui.button.style.textAlign = "center";
-        ui.button.style.lineHeight = "1";
-        ui.button.style.boxSizing = "border-box";
-        ui.button.style.verticalAlign = "middle";
-        ui.button.onmouseenter = () => {
-            if (!ui.button.disabled) ui.button.style.background = "#d83f6e";
-        };
-        ui.button.onmouseleave = () => {
-            if (!ui.button.disabled) ui.button.style.background = "#FC5185";
-        };
         renderStats(ui, lastStats);
         ui.button.onclick = () => {
             controller.abort();
@@ -313,7 +274,7 @@
                 delay,
                 signal: controller.signal,
                 onRateLimit: status => {
-                    ui.title.textContent = status ? "X 요청 대기 중" : "마음에 들어요 청소 중";
+                    ui.title.textContent = status ? "X 요청 대기 중" : "마음에 들어요 정리 중...";
                     if (status) {
                         ui.phase.textContent = `X 요청 제한으로 대기 중입니다. ${status.seconds}초 후 자동으로 이어서 진행합니다.`;
                     } else {
@@ -327,7 +288,7 @@
             });
             lastStats = { ...result, phase: "unlike" };
             renderStats(ui, lastStats);
-            ui.title.textContent = result.failed ? "마음에 들어요 청소 일부 실패" : "마음에 들어요 청소 완료";
+            ui.title.textContent = result.failed ? "마음에 들어요 정리 일부 실패" : "마음에 들어요 정리 완료";
             ui.phase.textContent = result.failed
                 ? `취소하지 못한 좋아요가 ${result.failed.toLocaleString()}개 있습니다.`
                 : result.checked ? "좋아요 취소가 끝났습니다." : "취소할 좋아요가 없습니다.";
@@ -340,27 +301,27 @@
                 ui.phase.textContent =
                     `X에서 요청이 많아 잠시 제한했습니다. 현재까지 ${stats.completed.toLocaleString()}개의 좋아요를 취소했습니다. 잠시 후 다시 시도해 주세요.`;
             } else if (error?.type === root.XApi?.ErrorTypes?.CANCELLED) {
-                ui.title.textContent = "마음에 들어요 청소 취소됨";
+                ui.title.textContent = "마음에 들어요 정리 취소됨";
                 ui.phase.textContent = "사용자가 작업을 취소했습니다.";
             } else if (error?.type === root.XApi?.ErrorTypes?.LOGIN_REQUIRED) {
                 ui.title.textContent = "로그인이 필요합니다";
                 ui.phase.textContent = "X에 로그인한 후 다시 시도해주세요.";
             } else {
-                ui.title.textContent = "마음에 들어요 청소 실패";
+                ui.title.textContent = "마음에 들어요 정리 실패";
                 ui.phase.textContent =
                     "좋아요 내역을 불러오지 못했습니다. X의 변경으로 일시적으로 사용할 수 없거나 잠시 후 다시 시도해야 할 수 있습니다.";
             }
         }
         ui.button.disabled = false;
-        ui.button.textContent = completedSuccessfully ? "완료" : "닫기";
-        ui.button.style.background = "#FC5185";
+        ui.button.textContent = completedSuccessfully ? "확인" : "닫기";
+        ui.button.style.background = "#e64b7a";
         ui.button.onclick = () => ui.overlay.remove();
     }
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message?.type !== "startLikesCleanup") return;
         if (likesRunning) {
-            sendResponse({ started: false, error: "마음에 들어요 청소가 이미 실행 중입니다." });
+            sendResponse({ started: false, error: "마음에 들어요 정리가 이미 실행 중입니다." });
             return;
         }
         startLikesCleanup(message.delay);
