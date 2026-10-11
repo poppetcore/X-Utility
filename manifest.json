@@ -1,5 +1,5 @@
 {
-    "name": "X utility",
+    "name": "X Utility",
     "version": "2.0.5",
     "description": "웹 세션 기반의 X 사용 도우미",
     "manifest_version": 3,
@@ -32,7 +32,7 @@
             "32": "icon.png",
             "48": "icon.png"
         },
-        "default_title": "X utility",
+        "default_title": "X Utility",
         "default_popup": "popup.html"
     },
     "permissions": [
