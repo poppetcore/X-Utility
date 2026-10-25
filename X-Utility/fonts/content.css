@@ -1,5 +1,0 @@
-/* Only extension-owned overlays; never style X's page content. */
-:is(#tweet-clean-overlay, #likes-cleaner-overlay, #follower-tracker-overlay),
-:is(#tweet-clean-overlay, #likes-cleaner-overlay, #follower-tracker-overlay) * {
-    font-family: "XUtilityFreesentation", sans-serif !important;
-}
