@@ -1,3 +1,59 @@
+===============================================================================
+                                   X Utility                                   
+                                    LICENSES                                   
+===============================================================================
+
+-------------------------------------------------------------------------------
+[ 제3자 라이선스 구성 안내 ]
+-------------------------------------------------------------------------------
+
+이 문서는 포함된 제3자 코드 및 폰트의 저작권 고지와 라이선스 전문입니다.
+TwitterUtility 및 X Utility 수정 부분의 주 MIT 라이선스는 LICENCE를 참조하세요.
+각 구성 요소에는 해당 섹션의 라이선스가 적용됩니다.
+
+-------------------------------------------------------------------------------
+[ DeleteTweets — MIT License ]
+-------------------------------------------------------------------------------
+
+구성 요소: DeleteTweets
+원본 제작자: Lyfhael
+원본 저장소: https://github.com/Lyfhael/DeleteTweets
+적용 라이선스: MIT License
+
+Lyfhael/DeleteTweets
+https://github.com/Lyfhael/DeleteTweets
+
+MIT License
+
+Copyright (c) 2023 Lyfhael
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+[ Freesentation — SIL Open Font License 1.1 ]
+-------------------------------------------------------------------------------
+
+구성 요소: Freesentation
+원본 제작자: The Freesentation Authors
+원본 저장소: https://github.com/Freesentation/freesentation
+적용 라이선스: SIL Open Font License 1.1
+
 Copyright 2024 The Freesentation Authors (https://freesentation.blog/)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.

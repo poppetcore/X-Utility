@@ -25,7 +25,7 @@
                 "cleanup_ui.js",
                 "likes_cleaner.js",
                 "delete_tweet.js",
-                "contentScript.js"
+                "content-script.js"
             ]
         }
     ],

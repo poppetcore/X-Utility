@@ -2,11 +2,11 @@
     "use strict";
     let loading;
     const faces = [
-        [400, "4Regular"],
-        [500, "5Medium"],
-        [600, "6SemiBold"],
-        [700, "7Bold"],
-        [800, "8ExtraBold"]
+        [400, "4regular"],
+        [500, "5medium"],
+        [600, "6semibold"],
+        [700, "7bold"],
+        [800, "8extrabold"]
     ];
 
     // Register the bundled bytes only when an extension overlay is opened.
@@ -16,7 +16,7 @@
         if (!loading) {
             loading = Promise.all(faces.map(async ([weight, name]) => {
                 try {
-                    const response = await fetch(chrome.runtime.getURL(`fonts/Freesentation-${name}.woff2`));
+                    const response = await fetch(chrome.runtime.getURL(`fonts/freesentation-${name}.woff2`));
                     if (!response.ok) throw new Error(`Font HTTP ${response.status}`);
                     const face = new FontFace("XUtilityFreesentation", await response.arrayBuffer(), {
                         style: "normal", weight: String(weight), display: "swap"
