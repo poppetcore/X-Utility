@@ -17,7 +17,9 @@
                 "https://*.twitter.com/*",
                 "https://*.x.com/*"
             ],
+            "css": ["fonts/content.css"],
             "js": [
+                "fonts/content-fonts.js",
                 "x_api.js",
                 "follower_tracker.js",
                 "cleanup_ui.js",
@@ -44,5 +46,11 @@
         "*://*.twitter.com/*",
         "*://*.x.com/*",
         "https://abs.twimg.com/*"
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": ["fonts/*.woff2"],
+            "matches": ["https://*.x.com/*", "https://*.twitter.com/*"]
+        }
     ]
 }

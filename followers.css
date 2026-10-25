@@ -25,12 +25,13 @@ body {
     margin: 0;
     background: var(--surface-muted);
     color: var(--on-surface);
-    font-family: Roboto, "Noto Sans KR", Arial, sans-serif;
+    font-family: "XUtilityFreesentation", sans-serif;
     font-size: 14px;
     letter-spacing: .1px;
 }
 
 button, select { font: inherit; }
+input, textarea { font-family: inherit; }
 button { letter-spacing: .1px; }
 
 .app-bar {

@@ -154,10 +154,11 @@
     }
 
     function createOverlay() {
+        root.ensureXUtilityFonts();
         document.getElementById("follower-tracker-overlay")?.remove();
         const overlay = document.createElement("div");
         overlay.id = "follower-tracker-overlay";
-        overlay.style.cssText = "position:fixed;inset:0;background:#000e;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:2147483647;font:16px sans-serif;gap:14px";
+        overlay.style.cssText = "position:fixed;inset:0;background:#000e;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:2147483647;font:16px XUtilityFreesentation,sans-serif;gap:14px";
         const title = document.createElement("strong");
         title.textContent = "팔로워를 불러오는 중";
         const status = document.createElement("div");
@@ -174,7 +175,7 @@
         const ui = createOverlay();
         const controller = new AbortController();
         let collectedCount = 0;
-        ui.overlay.style.fontFamily = '"Pretendard", "Noto Sans KR", "맑은 고딕", Arial, sans-serif';
+        ui.overlay.style.fontFamily = '"XUtilityFreesentation", sans-serif';
         ui.title.style.fontSize = "20px";
         ui.title.style.fontWeight = "750";
         ui.status.style.color = "#e5e7eb";
@@ -193,7 +194,7 @@
         ui.button.style.background = "#3FC1C9";
         ui.button.style.color = "#fff";
         ui.button.style.textAlign = "center";
-        ui.button.style.font = '650 13px "Pretendard", "Noto Sans KR", "맑은 고딕", Arial, sans-serif';
+        ui.button.style.font = '650 13px "XUtilityFreesentation", sans-serif';
         ui.button.style.boxShadow = "none";
         ui.button.onmouseenter = () => {
             if (!ui.button.disabled) ui.button.style.background = "#2eaab2";
