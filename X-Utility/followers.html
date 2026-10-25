@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>X Utility · Follower history</title>
+    <link rel="icon" href="icon.png" type="image/png">
+    <link rel="stylesheet" href="fonts/fonts.css">
+    <link rel="stylesheet" href="followers.css">
+</head>
+<body>
+    <header class="app-bar">
+        <div class="brand">
+            <img class="app-icon" src="icon.png" alt="">
+            <div>
+                <h1>X Utility</h1>
+                <p>팔로워 변화 확인</p>
+            </div>
+        </div>
+        <p class="open-hint">프로필을 열려면 목록을 더블클릭하세요.</p>
+    </header>
+
+    <main class="page">
+        <section class="control-card" aria-labelledby="compare-title">
+            <div class="section-heading">
+                <div>
+                    <h2 id="compare-title">비교할 기록</h2>
+                    <p>같은 계정에서 저장한 두 시점을 선택합니다.</p>
+                </div>
+                <button id="refresh-button" class="secondary-button" type="button">새로고침</button>
+            </div>
+
+            <div class="selectors">
+                <label>
+                    <span>계정</span>
+                    <select id="account-select" disabled>
+                        <option>계정을 불러오는 중…</option>
+                    </select>
+                </label>
+                <label>
+                    <span>이전 기록</span>
+                    <select id="previous-select" disabled></select>
+                </label>
+                <div class="compare-arrow" aria-hidden="true">→</div>
+                <label>
+                    <span>현재 기록</span>
+                    <select id="current-select" disabled></select>
+                </label>
+                <button id="compare-button" class="primary-button" type="button" disabled>변화 확인</button>
+            </div>
+            <p id="selection-help" class="selection-help">최근 기록과 직전 기록이 기본으로 선택됩니다.</p>
+        </section>
+
+        <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+        <section id="results" class="results" aria-labelledby="result-title" hidden>
+            <div class="result-heading">
+                <div>
+                    <h2 id="result-title">비교 결과</h2>
+                    <p id="range-label"></p>
+                </div>
+            </div>
+
+            <div class="summary-grid" aria-label="팔로워 수 요약">
+                <div class="summary-card">
+                    <span>이전</span>
+                    <strong id="previous-count">0</strong>
+                </div>
+                <div class="summary-card">
+                    <span>현재</span>
+                    <strong id="current-count">0</strong>
+                </div>
+                <div class="summary-card added">
+                    <span>새 팔로워</span>
+                    <strong id="added-count">0</strong>
+                </div>
+                <div class="summary-card removed">
+                    <span>사라진 팔로워</span>
+                    <strong id="removed-count">0</strong>
+                </div>
+            </div>
+
+            <div class="content-grid">
+                <section class="list-card" aria-label="비교 목록">
+                    <div class="tabs" role="tablist" aria-label="비교 결과 필터">
+                        <button class="tab active" id="tab-added" role="tab" aria-selected="true" data-tab="added" type="button">
+                            새 팔로워 <span id="tab-added-count">0</span>
+                        </button>
+                        <button class="tab" id="tab-removed" role="tab" aria-selected="false" data-tab="removed" type="button">
+                            사라진 팔로워 <span id="tab-removed-count">0</span>
+                        </button>
+                        <button class="tab" id="tab-retained" role="tab" aria-selected="false" data-tab="retained" type="button">
+                            계속 팔로우 중 <span id="tab-retained-count">0</span>
+                        </button>
+                    </div>
+                    <div id="follower-list" class="follower-list" role="tabpanel" aria-labelledby="tab-added"></div>
+                    <div id="empty-list" class="empty-state" hidden>표시할 팔로워가 없습니다.</div>
+                    <div class="load-more-wrap">
+                        <button id="load-more-button" class="secondary-button" type="button" hidden>더 보기</button>
+                    </div>
+                </section>
+
+                <aside class="history-card" aria-labelledby="history-title">
+                    <div class="history-header">
+                        <div>
+                            <h2 id="history-title">개인 기록</h2>
+                            <p id="history-subtitle">목록에서 팔로워를 선택하세요.</p>
+                        </div>
+                    </div>
+                    <div id="history-empty" class="empty-state">선택한 사용자의 팔로워 변화 내역을 표시합니다.</div>
+                    <div id="history-content" hidden>
+                        <div id="history-person" class="history-person"></div>
+                        <ol id="history-list" class="history-list"></ol>
+                    </div>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <script src="follower_storage.js"></script>
+    <script src="followers_compare.js"></script>
+    <script src="followers.js"></script>
+</body>
+</html>
